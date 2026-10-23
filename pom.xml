@@ -40,17 +40,18 @@
     <version>2.3</version>
     <scope>provided</scope>
 </dependency>
-	<!-- OWASP 2025 A03 Software Supply Chain: log4j 2.12.1 is the Java 7 branch
-	     and is still vulnerable to Log4Shell (CVE-2021-44228). 2.12.2 fixed it. -->
+	<!-- Laboratorio SCA: actualizar ambos modulos de Log4j de 2.12.1 a 2.25.5
+	     para remediar Log4Shell (CVE-2021-44228) y mantener sus versiones alineadas.
+	     La rama 2.25.x requiere Java 8 o superior, compatible con el JDK del Dockerfile. -->
 	<dependency>
 		<groupId>org.apache.logging.log4j</groupId>
 		<artifactId>log4j-api</artifactId>
-		<version>2.12.1</version>
+		<version>2.25.5</version>
 	</dependency>
 	<dependency>
 		<groupId>org.apache.logging.log4j</groupId>
 		<artifactId>log4j-core</artifactId>
-		<version>2.12.1</version>
+		<version>2.25.5</version>
 	</dependency>
 	<!-- OWASP 2025 A08 Software or Data Integrity Failures: commons-collections
 	     3.1 (2004) carries the InvokerTransformer gadget used by ysoserial's
