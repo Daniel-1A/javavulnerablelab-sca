@@ -1,3 +1,17 @@
+# Laboratorio SCA: JavaVulnerableLab
+
+Repositorio académico independiente basado en CSPF-Founder/JavaVulnerableLab.
+
+- [Procedimiento y pipeline](LABORATORIO_SCA.md)
+- [Comparación de Dependency-Check, Dependency-Track y DefectDojo](COMPARACION_SCA.md)
+- [Remediación de Log4Shell y verificaciones](REMEDIACION_LOG4J.md)
+- [Respuestas a las cinco preguntas de análisis](ANALISIS_SCA.md)
+- [Workflow comentado: Dependency-Check y SBOM](.github/workflows/sca-dependency-check.yml)
+
+Los reportes locales originales y las capturas se entregan en el paquete académico. La rama `main` conserva el POM inicial; la propuesta actualiza ambos módulos Log4j de 2.12.1 a 2.25.5. Los resultados locales pasan de 31 a 19 pares componente/aviso. Quedan otras dependencias vulnerables.
+
+---
+
 Java Vulnerable Lab
 ===================
 
