@@ -15,6 +15,8 @@ jobs: # Declara dos trabajos independientes.
     permissions: # Restringe los permisos de este trabajo.
       contents: read # Autoriza únicamente la lectura del código fuente.
       security-events: write # Autoriza publicar los resultados SARIF en Code scanning.
+    env: # Configura la memoria de Maven durante la importación y el análisis.
+      MAVEN_OPTS: -Xmx2g # Limita el heap de Java a dos gigabytes durante la carga inicial del NVD.
     steps: # Ordena la preparación, el análisis y la publicación.
       - name: Descargar el repositorio # Obtiene el código de la revisión analizada.
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # Fija checkout v7.0.1 al commit oficial.
@@ -30,12 +32,26 @@ jobs: # Declara dos trabajos independientes.
           path: ~/.m2/repository/org/owasp/dependency-check-data # Conserva la base local de Dependency-Check.
           key: nvd-${{ runner.os }}-dc13-${{ github.run_id }}-${{ github.run_attempt }} # Guarda una copia actualizada por ejecución.
           restore-keys: nvd-${{ runner.os }}-dc13- # Recupera la última base compatible aunque cambie la revisión.
+      - name: Preparar la primera copia del NVD # Completa la base inicial aunque la red interrumpa respuestas grandes de la API.
+        env: # Entrega la clave únicamente a la preparación de la base.
+          NVD_API_KEY: ${{ secrets.NVD_API_KEY }} # Valida la clave con el NVD sin mostrar su valor.
+        run: | # Inicializa la base desde feeds oficiales íntegros cuando aún no existe la marca de preparación.
+          nvd_cache="$HOME/.m2/repository/org/owasp/dependency-check-data" # Usa el mismo directorio que conserva la caché.
+          if [ ! -f "$nvd_cache/.sca-seed-complete" ]; then # Evita repetir la descarga completa en ejecuciones posteriores.
+            python3 scripts/download_nvd_feeds.py "$RUNNER_TEMP/nvd-feeds" # Descarga por rangos y verifica longitud y SHA-256 oficiales de todos los feeds.
+            python3 -m http.server 8878 --bind 127.0.0.1 --directory "$RUNNER_TEMP/nvd-feeds" > "$RUNNER_TEMP/nvd-feed-server.log" 2>&1 & # Sirve los datos verificados solo en el runner local.
+            feed_server=$! # Conserva el identificador del servidor temporal.
+            trap 'kill "$feed_server" 2>/dev/null || true' EXIT # Detiene el servidor temporal al terminar este paso.
+            mvn -B --no-transfer-progress -s .mvn/settings-sca.xml org.owasp:dependency-check-maven:13.0.0:update-only -DnvdApiServerId=nvd '-DnvdDatafeedUrl=http://127.0.0.1:8878/nvdcve-2.0-{0}.json.gz' -DossIndexAnalyzerEnabled=false # Importa el conjunto NVD completo mediante el mecanismo oficial de espejo del plugin.
+            cp "$RUNNER_TEMP/nvd-feeds/manifest.json" "$nvd_cache/sca-nvd-seed-manifest.json" # Guarda en caché la trazabilidad y los hashes de la descarga inicial.
+            touch "$nvd_cache/.sca-seed-complete" # Marca la base solo después de una importación correcta.
+          fi # Finaliza la preparación inicial y deja disponibles las actualizaciones normales por API.
       - name: Ejecutar Dependency-Check # Genera HTML, XML, JSON y SARIF sobre las dependencias del proyecto.
         env: # Limita el acceso al secreto a este paso.
           NVD_API_KEY: ${{ secrets.NVD_API_KEY }} # Lee el secreto de Actions sin incrustar su valor en el YAML.
         run: | # Ejecuta comandos de Bash y conserva sus saltos de línea.
           test -n "$NVD_API_KEY" || { echo 'Falta configurar el secreto NVD_API_KEY.' >&2; exit 1; } # Comprueba la presencia de la clave sin imprimirla.
-          mvn -B --no-transfer-progress -s .mvn/settings-sca.xml org.owasp:dependency-check-maven:13.0.0:check -Dformat=ALL -DnvdApiServerId=nvd -DossIndexAnalyzerEnabled=false -DfailBuildOnCVSS=11 # Analiza con el servidor NVD definido en settings; el laboratorio informa todas las severidades sin bloquear por CVSS.
+          mvn -B --no-transfer-progress -s .mvn/settings-sca.xml org.owasp:dependency-check-maven:13.0.0:check -Dformat=ALL -DnvdApiServerId=nvd -DnvdApiResultsPerPage=100 -DnvdApiDelay=1000 -DossIndexAnalyzerEnabled=false -DfailBuildOnCVSS=11 # Actualiza incrementalmente por API con páginas pequeñas; informa todas las severidades sin bloquear por CVSS.
       - name: Publicar SARIF en Code scanning # Envía las alertas a la pestaña Security.
         if: ${{ always() && hashFiles('target/dependency-check-report.sarif') != '' }} # Publica el reporte existente incluso si falló un paso anterior.
         uses: github/codeql-action/upload-sarif@793b778da9c9275a0f276522b27cb5fc14bba279 # Fija el commit oficial de CodeQL Action v4 para cargar SARIF de terceros.

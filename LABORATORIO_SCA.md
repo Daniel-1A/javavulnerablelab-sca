@@ -37,6 +37,8 @@ Dependency-Check genera `target/dependency-check-report.html`, `.xml`, `.json` y
 
 Cada línea del YAML tiene un comentario. El permiso `security-events: write` se limita al trabajo que publica SARIF; el trabajo SBOM solo hereda lectura del repositorio. Las publicaciones de resultados se intentan con `always()` y comprueban la existencia del SARIF antes de cargarlo.
 
+La primera copia del NVD se prepara con `scripts/download_nvd_feeds.py`: valida la clave contra la API, descarga los feeds oficiales en rangos HTTP reanudables y comprueba el SHA-256 del JSON descomprimido y su longitud contra los metadatos oficiales. El plugin importa esos archivos mediante su opción de espejo `nvdDatafeedUrl`, servidos temporalmente solo en `127.0.0.1` del runner. La marca de preparación se crea después de una importación correcta y se conserva junto con la base NVD en la caché. Las ejecuciones siguientes reutilizan esa base y actualizan normalmente por API con páginas pequeñas. Este procedimiento evita los cortes observados en las respuestas grandes del NVD y mantiene intactos los datos de vulnerabilidades.
+
 `failBuildOnCVSS=11` conserva el comportamiento informativo del laboratorio: CVSS tiene un máximo de 10, por lo que las vulnerabilidades se muestran en los reportes y en Code scanning sin impedir la publicación de evidencias. Los errores del analizador sí hacen fallar el trabajo. Una política de producción puede fijar 7 para bloquear por hallazgos altos o críticos; entonces podrían seguir fallando los análisis aun después de corregir solo Log4j, porque el proyecto contiene otras dependencias vulnerables.
 
 ## Dependencias transitivas
