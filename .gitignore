@@ -1,0 +1,15 @@
+mysql-data/
+target/
+*.war
+*.class
+.idea/
+*.iml
+.vscode/
+.DS_Store
+
+# Laboratorio SCA: resultados y secretos locales
+reports/
+.env
+.env.*
+!.env.example
+*.log

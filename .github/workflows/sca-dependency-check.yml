@@ -1,0 +1,74 @@
+name: SCA - Dependency-Check y SBOM # Identifica el workflow del laboratorio en Actions.
+'on': # Define los eventos que inician el análisis.
+  push: # Analiza los cambios enviados a la rama principal.
+    branches: [main] # Limita este evento a main.
+  pull_request: # Analiza las propuestas de cambio antes de integrarlas.
+    branches: [main] # Solo procesa PR cuyo destino sea main.
+  workflow_dispatch: {} # Permite iniciar el workflow manualmente desde Actions.
+permissions: # Establece el acceso mínimo que heredan los trabajos.
+  contents: read # Permite descargar el código sin modificar el repositorio.
+jobs: # Declara dos trabajos independientes.
+  dependency-check: # Ejecuta el análisis de vulnerabilidades de las dependencias.
+    name: Dependency-Check # Muestra un nombre legible para este trabajo.
+    runs-on: ubuntu-latest # Usa una máquina virtual Linux administrada por GitHub.
+    timeout-minutes: 60 # Da tiempo a la descarga inicial de la base del NVD.
+    permissions: # Restringe los permisos de este trabajo.
+      contents: read # Autoriza únicamente la lectura del código fuente.
+      security-events: write # Autoriza publicar los resultados SARIF en Code scanning.
+    steps: # Ordena la preparación, el análisis y la publicación.
+      - name: Descargar el repositorio # Obtiene el código de la revisión analizada.
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # Fija checkout v7.0.1 al commit oficial.
+      - name: Preparar Java 17 # Instala el JDK requerido por el laboratorio.
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # Fija setup-java v6.1.0 al commit oficial.
+        with: # Configura la distribución y la versión del JDK.
+          distribution: temurin # Utiliza Eclipse Temurin.
+          java-version: '17' # Fija la versión principal de Java.
+          cache: maven # Reutiliza las dependencias Maven descargadas.
+      - name: Restaurar la base de vulnerabilidades # Evita descargar el NVD completo en cada análisis.
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # Fija cache v6.1.0 al commit oficial.
+        with: # Define la ubicación y las claves de la caché del NVD.
+          path: ~/.m2/repository/org/owasp/dependency-check-data # Conserva la base local de Dependency-Check.
+          key: nvd-${{ runner.os }}-dc13-${{ github.run_id }}-${{ github.run_attempt }} # Guarda una copia actualizada por ejecución.
+          restore-keys: nvd-${{ runner.os }}-dc13- # Recupera la última base compatible aunque cambie la revisión.
+      - name: Ejecutar Dependency-Check # Genera HTML, XML, JSON y SARIF sobre las dependencias del proyecto.
+        env: # Limita el acceso al secreto a este paso.
+          NVD_API_KEY: ${{ secrets.NVD_API_KEY }} # Lee el secreto de Actions sin incrustar su valor en el YAML.
+        run: | # Ejecuta comandos de Bash y conserva sus saltos de línea.
+          test -n "$NVD_API_KEY" || { echo 'Falta configurar el secreto NVD_API_KEY.' >&2; exit 1; } # Comprueba la presencia de la clave sin imprimirla.
+          mvn -B --no-transfer-progress -s .mvn/settings-sca.xml org.owasp:dependency-check-maven:13.0.0:check -Dformat=ALL -DnvdApiServerId=nvd -DossIndexAnalyzerEnabled=false -DfailBuildOnCVSS=11 # Analiza con el servidor NVD definido en settings; el laboratorio informa todas las severidades sin bloquear por CVSS.
+      - name: Publicar SARIF en Code scanning # Envía las alertas a la pestaña Security.
+        if: ${{ always() && hashFiles('target/dependency-check-report.sarif') != '' }} # Publica el reporte existente incluso si falló un paso anterior.
+        uses: github/codeql-action/upload-sarif@793b778da9c9275a0f276522b27cb5fc14bba279 # Fija el commit oficial de CodeQL Action v4 para cargar SARIF de terceros.
+        with: # Identifica el archivo y la categoría del análisis.
+          sarif_file: target/dependency-check-report.sarif # Selecciona el reporte SARIF de Dependency-Check.
+          category: dependency-check # Mantiene una categoría estable para comparar análisis y remediaciones.
+      - name: Guardar reportes descargables # Permite revisar los resultados fuera de GitHub.
+        if: ${{ always() }} # Intenta conservar los reportes aunque el análisis termine con error.
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # Fija upload-artifact v7.0.2 al commit oficial.
+        with: # Define el nombre, la ruta y la conservación del artefacto.
+          name: dependency-check-reports # Agrupa HTML, XML, JSON y SARIF en un único artefacto.
+          path: target/dependency-check-report.* # Incluye los formatos generados, especialmente HTML y XML.
+          if-no-files-found: error # Hace visible la ausencia de reportes en vez de aparentar una ejecución correcta.
+          retention-days: 30 # Conserva los reportes durante treinta días.
+  sbom: # Añade el segundo trabajo solicitado como punto extra.
+    name: SBOM CycloneDX # Identifica la generación del inventario de componentes.
+    runs-on: ubuntu-latest # Usa una máquina independiente para generar el SBOM.
+    timeout-minutes: 15 # Limita la duración de la resolución de dependencias.
+    steps: # Prepara el proyecto, genera el SBOM y lo publica.
+      - name: Descargar el repositorio # Obtiene la misma revisión analizada por el otro trabajo.
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # Fija checkout v7.0.1 al commit oficial.
+      - name: Preparar Java 17 # Usa el mismo JDK en ambos trabajos.
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # Fija setup-java v6.1.0 al commit oficial.
+        with: # Configura Java y la caché de Maven.
+          distribution: temurin # Selecciona Eclipse Temurin.
+          java-version: '17' # Cumple el requisito de Java 17.
+          cache: maven # Reutiliza las librerías disponibles en la caché.
+      - name: Generar bom.json # Inventaría las dependencias directas y transitivas del proyecto.
+        run: mvn -B --no-transfer-progress org.cyclonedx:cyclonedx-maven-plugin:2.9.3:makeAggregateBom -DoutputFormat=json -DschemaVersion=1.6 # Genera un SBOM CycloneDX JSON compatible con Dependency-Track.
+      - name: Guardar el SBOM # Publica el inventario como artefacto descargable.
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # Fija upload-artifact v7.0.2 al commit oficial.
+        with: # Configura el artefacto del segundo trabajo.
+          name: sbom-cyclonedx # Asigna un nombre distinto al artefacto de vulnerabilidades.
+          path: target/bom.json # Incluye el SBOM generado por makeAggregateBom.
+          if-no-files-found: error # Falla si no se generó el inventario esperado.
+          retention-days: 30 # Conserva el SBOM durante treinta días.
